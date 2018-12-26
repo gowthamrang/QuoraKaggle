@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "Code"
+		},
+		{
+			"path": "input"
+		},
+		{
+			"path": "logs"
+		},
+		{
+			"path": "output"
+		}
+	],
+	"settings": {
+		"python.pythonPath": "C:\\Users\\g.raman\\AppData\\Local\\conda\\conda\\envs\\KerasTest\\python.exe"
+	}
+}
