@@ -22,6 +22,10 @@ import Utils
 from Architecture import lstm_gru_attn
 from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
 import glob
+import re
+import nltk
+lemma = nltk.wordnet.WordNetLemmatizer()
+
 FOLDS = 3 #donot change
 DATA_SPLIT_SEED = 1403 #donot change
 
@@ -29,19 +33,52 @@ DATA_SPLIT_SEED = 1403 #donot change
 def get_coefs(word,*arr): return word, np.asarray(arr, dtype='float32')    
 def getxyfromdf(df, T): return pad_sequences(T.text_to_sequence(df.question_text.values), maxlen=config['seq_len'], padding='post'), df.target.values  if 'target' in df else None
 
-
 class Tokenizer():  
-    def __init__(self, max_vocab=400000):
+    def __init__(self, embeddings_index, max_vocab=400000):
         self.c = Counter()
         self.word2id, self.id2word = {"#pad#":0}  , ['#pad#']
         self.MAX_VOCAB = 400000
+        self.vocab = set(embeddings_index.keys())
         return
 
-    @staticmethod
-    def tokenize(text):
+    def inVocab(self, word):
+        return word in self.vocab or word.lower() in self.vocab or word.upper() in self.vocab 
+
+    def two_split_word(self, word):
+        if len(word)<6 or self.inVocab(word): return [word]
+        for i in range(3,len(word)-3):
+            if self.inVocab(word[:i])  and self.inVocab(word[i:]):
+                return [word[:i], word[i:]]
+        return [word]
+
+    def tokenize(self, text):
+        if config['number_to_x'] == True:
+            text = re.sub('\d+.?\d+', "x", text)
+        if config['block_math'] == True:
+            text = re.sub('\[math\].*\[/math\]', "x", text,flags=re.IGNORECASE)
+        if config['swear_word_map'] == True:
+            text = re.sub('f[\*|u][\*|c][\*|k]', 'fuck', text, flags=re.IGNORECASE)
+            text = re.sub('d[\*|i][\*|c][\*|k]', 'dick', text, flags=re.IGNORECASE)
+            text = re.sub('c[\*|o][\*|c][\*|k]', 'cock', text, flags=re.IGNORECASE)
+            text = re.sub('b[\*]+[tch]?', 'bitch', text ,flags=re.IGNORECASE)
+            text = re.sub('s[\*|h][\*|i][\*|t]', 'shit', text,flags=re.IGNORECASE)
+            text = re.sub('a[\*|s][\*|s]', 'ass', text,flags=re.IGNORECASE)
+            text = re.sub('p[\*|u]ssy', 'ass', text,flags=re.IGNORECASE)            
+        if config['n_t_replace'] == True:
+            text = text.replace("can't", ' can not ')
+            text = text.replace("n't", ' not ')
+            text = text.replace("'ve", ' have ')
+            text = text.replace("'m", ' am ')
         for each in "!\"#$%&()*+,-./:;<=>?@[\]^_`{|}~'’'":
-            text = text.replace(each,'')        
-        return text.split(' ')
+            text = text.replace(each,' ')        
+        res = list(filter(lambda x: len(x)>0, text.split(' ')))
+        if config['two_split'] == True:
+            res1 = []
+            for e in res: res1.extend(self.two_split_word(e))
+            res = res1
+        return res
+
+
         
     def fit_texts(self,texts, embeddings_index=None):
         for text in texts:
@@ -109,10 +146,10 @@ def one_round(model, model_dir, train_x, train_y, val_x, val_y, tx, epochs):
 
 ##################### HELPER FUNC ENDS ####################
 def preprocess(train_df, test_df, embeddings_index):
-    T = Tokenizer()
+    T = Tokenizer(embeddings_index)
     T.fit_texts(train_df.question_text.values)
     T.fit_texts(test_df.question_text.values)
-    T.build_vocab(embeddings_index)
+    T.build_vocab()
     return T
 
 def train_full(train_df, test_df, embeddings_index):
@@ -156,6 +193,12 @@ config['internal_dim'] = 100
 config['lr'] = 0.01
 config['func'] = lstm_gru_attn #function is used as a variable
 config['top_k_checkpoints'] = 3 #for checkpoint ensemble-averaging (maximum of epochs)
+config['number_to_x'] = False
+config['block_math'] = False
+config['swear_word_map'] = False
+config['n_t_replace'] = False
+config['lemmatize'] = False
+config['two_split'] = False
 
 
 if __name__ == "__main__":
@@ -181,8 +224,8 @@ if __name__ == "__main__":
         EMBEDDING_FILE = '../input/embeddings/wiki-news-300d-1M/wiki-news-300d-1M.vec'
     
 
-    train_df = pd.read_csv("../output/train.csv", index_col="qid")
-    test_df = pd.read_csv("../output/test.csv", index_col="qid")
+    train_df = pd.read_csv("../output/small_train.csv", index_col="qid")
+    test_df = pd.read_csv("../output/small_test.csv", index_col="qid")
     # sample_train = train_df.sample(1000)
     # sample_test = test_df.sample(1000)
     # sample_train.to_csv("../output/small_train.csv")
