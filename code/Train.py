@@ -23,8 +23,7 @@ from Architecture import lstm_gru_attn
 from keras.callbacks import ReduceLROnPlateau, ModelCheckpoint
 import glob
 import re
-import nltk
-lemma = nltk.wordnet.WordNetLemmatizer()
+
 
 FOLDS = 3 #donot change
 DATA_SPLIT_SEED = 1403 #donot change
@@ -149,7 +148,7 @@ def preprocess(train_df, test_df, embeddings_index):
     T = Tokenizer(embeddings_index)
     T.fit_texts(train_df.question_text.values)
     T.fit_texts(test_df.question_text.values)
-    T.build_vocab()
+    T.build_vocab(embeddings_index)
     return T
 
 def train_full(train_df, test_df, embeddings_index):
@@ -171,11 +170,12 @@ def train_full(train_df, test_df, embeddings_index):
         val_x = train_X[valid_idx]
         val_y = train_Y[valid_idx]       
         print(f"Running fold {idx}") 
-        val_pred_y, test_y = one_round(model,config['model_dir'], tr_x, tr_y, val_x, val_y, test_X, 20)  
+        val_pred_y, test_y = one_round(model,config['model_dir'], tr_x, tr_y, val_x, val_y, test_X, 2)  
         train_meta[valid_idx] = val_pred_y
         test_meta += test_y/FOLDS
     
     columnname = f"targets_{config['func'].__name__}_avg_{config['top_k_checkpoints']}__{config['embedding']}"
+    columnname  = columnname + "_" + '_'.join(filter(lambda x: config[x] ==True , config))
     train_df[columnname] = train_meta
     train_df.to_csv("../output/train.csv", index_label ='qid')
 
@@ -193,18 +193,22 @@ config['internal_dim'] = 100
 config['lr'] = 0.01
 config['func'] = lstm_gru_attn #function is used as a variable
 config['top_k_checkpoints'] = 3 #for checkpoint ensemble-averaging (maximum of epochs)
+#true False features
 config['number_to_x'] = False
 config['block_math'] = False
 config['swear_word_map'] = False
 config['n_t_replace'] = False
-config['lemmatize'] = False
 config['two_split'] = False
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Map wikipedia categories to kngine entity types')
-    for each in config:
+    for each in 'embedding,seq_len,bs,dropout,internal_dim,lr,func,top_k_checkpoints'.split(','):
         parser.add_argument(f'--{each}', default = config[each], type = type(config[each]), required=False)
+    
+    for each in 'number_to_x,block_math,swear_word_map,n_t_replace,two_split'.split(','):
+        parser.add_argument(f'--{each}', action='store_true', default=False, required=False)
+    
     args = vars(parser.parse_args())
     print('Configuration....')
     for each in args:
@@ -212,7 +216,7 @@ if __name__ == "__main__":
         config[each] = args[each]
     print('#'*20)
     
-    config['model_dir'] = '__'.join(f'{k}_{v}' if k != 'func' else f'{k}_{v.__name__}' for k,v in args.items())
+    config['model_dir'] = '__'.join(f'{k[:3]}_{v:3}' if k != 'func' else f'{k[:3]}_{v.__name__[:3]}' for k,v in args.items())
     if not os.path.exists(config['model_dir']):
         os.mkdir(config['model_dir'])
     EMBEDDING_FILE = None
@@ -224,13 +228,8 @@ if __name__ == "__main__":
         EMBEDDING_FILE = '../input/embeddings/wiki-news-300d-1M/wiki-news-300d-1M.vec'
     
 
-    train_df = pd.read_csv("../output/small_train.csv", index_col="qid")
-    test_df = pd.read_csv("../output/small_test.csv", index_col="qid")
-    # sample_train = train_df.sample(1000)
-    # sample_test = test_df.sample(1000)
-    # sample_train.to_csv("../output/small_train.csv")
-    # sample_test.to_csv("../output/small_test.csv")
-    # assert False
+    train_df = pd.read_csv("../output/train.csv", index_col="qid")
+    test_df = pd.read_csv("../output/test.csv", index_col="qid")
 
     if EMBEDDING_FILE and os.path.exists(EMBEDDING_FILE):
         print('Loading %s' %EMBEDDING_FILE )
